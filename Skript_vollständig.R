@@ -163,9 +163,39 @@ for (i in 1:base::length(ctg2$filename)) {
 }
 
 #Test
-lidR::opt_output_files(ctg2) <- "./Daten/Classify/Noise/sor/Chunks_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
-lidR::classify_noise(ctg2, algorithm = sor())
-ctg2 <- lidR::readLAScatalog("./Daten/Classify/Noise/sor/")
+ctg_test <- lidR::readLAScatalog(c(ctg2@data$filename[1], ctg2@data$filename[2], ctg2@data$filename[3], ctg2@data$filename[4], ctg2@data$filename[5]))
+lidR::las_check(ctg_test)
+lidR::opt_output_files(ctg_test) <- "./Daten/Classify/Noise/sor/Chunks_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+lidR::opt_chunk_buffer(ctg_test) <- 30
+lidR::classify_noise(ctg_test, algorithm = sor())
+ctg_test <- lidR::readLAScatalog("./Daten/Classify/Noise/sor/")
+lidR::opt_output_files(ctg_test) <- "./Daten/Classify/Noise/sor/Chunks_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+lidR::las_check(ctg_test)
+lidR::opt_chunk_buffer(ctg_test) <- 0
+for (i in 1:length(ctg_test@data$filename)) {
+  test <- lidR::readLAS(ctg_test@data$filename[i])
+  test <-  lidR::filter_poi(test, Classification != LASNOISE)
+  filename <- base::basename(ctg$filename[i])
+  filename <- tools::file_path_sans_ext(filename)
+  neu_filename <- base::paste0("./Daten/Classify/Noise/sor/", filename, ".laz")
+  lidR::writeLAS(test, neu_filename, index=TRUE)
+  base::print(i)
+}
+ctg_test <- lidR::readLAScatalog("./Daten/Classify/Noise/sor/")
+lidR::las_check(ctg_test)
+
+ctg_test <- lidR::readLAScatalog("./Daten/Classify/Noise/sor/")
+lidR::opt_output_files(ctg_test) <- "./Daten/Classify/Noise/ivf/Chunks_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+lidR::opt_chunk_buffer(ctg_test) <- 30
+lidR::classify_noise(ctg_test, algorithm = ivf())
+ctg_test <- lidR::readLAScatalog("./Daten/Classify/Noise/ivf/")
+lidR::las_check(ctg_test)
+
+lidR::opt_output_files(ctg_test) <- "./Daten/Classify/Noise/Chunks_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+
+ctg_test <- lidR::filter_poi(ctg_test, Classification != LASNOISE)
+
+
 for ( i in 1:base::length(base::list.files(path = "./Daten/Classify/Noise/sor/"))) {
   las_denoise <- lidR::readLAS(ctg2@data$filename[i])
   las_denoise <- lidR::filter_poi(ctg2@data$filename[i], Classification != LASNOISE)
