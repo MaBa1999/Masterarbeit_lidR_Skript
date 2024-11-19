@@ -79,6 +79,13 @@ lidR::opt_restart(ctg2) <- 1
 lidR::opt_laz_compression(ctg2) <- TRUE
 lidR::opt_output_files(ctg2) <- "./Daten/Classify/Noise/Chunks_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
 
+## Noise entfernen gesamtes Gebiet
+#Parallelprozessing Einstellen
+cores <- parallelly::availableCores()
+cores <- as.integer(cores)
+future::plan(future::multisession, workers = cores)
+lidR::set_lidr_threads(cores)
+
 ##Exploitative Datenanalyse
 # Code_test
 las <- lidR::readLAS(ctg2@data$filename[1])
@@ -139,22 +146,43 @@ ggplot2::ggplot(payload(las_tr), aes(X,Z, color = Classification)) +
   scale_color_gradientn(colours = height.colors(50))
 lidR::plot(las)
 
-
-## Noise entfernen gesamtes Gebiet
+#Schlife Filterung Noise
 for (i in 1:base::length(ctg2$filename)) {
   las_denoise <- lidR::readLAS(ctg2@data$filename[i])
-  las_denoise <- lidR::classify_noise(ctg2, algorithm = sor())
-  las_denoise <- lidR::filter_poi(las, Classification != LASNOISE)
+  las_denoise <- lidR::classify_noise(las_denoise, algorithm = sor())
+  las_denoise <- lidR::filter_poi(las_denoise, Classification != LASNOISE)
   las_denoise <- lidR::classify_noise(las_denoise, algorithm = ivf())
   las_denoise <- lidR::filter_poi(las_denoise, Classification != LASNOISE)
   # Extrahiere nur den Dateinamen 
-  filename <- base::basename(ctg$filename[i]) 
+  filename <- base::basename(ctg$filename[i])
   # Entferne die Dateiendung ".laz"
   filename <- tools::file_path_sans_ext(filename)
-  neu_filename <- base::paste0("./Daten/Classify/Noise", filename, "_denoise.laz")
+  neu_filename <- base::paste0("./Daten/Classify/Noise/Schleife/", filename, "_denoise.laz")
   lidR::writeLAS(las_denoise, neu_filename, index=TRUE)
   base::print(i)
 }
+
+#Test
+lidR::opt_output_files(ctg2) <- "./Daten/Classify/Noise/sor/Chunks_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+lidR::classify_noise(ctg2, algorithm = sor())
+ctg2 <- lidR::readLAScatalog("./Daten/Classify/Noise/sor/")
+for ( i in 1:base::length(base::list.files(path = "./Daten/Classify/Noise/sor/"))) {
+  las_denoise <- lidR::readLAS(ctg2@data$filename[i])
+  las_denoise <- lidR::filter_poi(ctg2@data$filename[i], Classification != LASNOISE)
+  filename <- base::basename(ctg$filename[i])
+  filename <- tools::file_path_sans_ext(filename)
+  neu_filename <- base::paste0("./Daten/Classify/Noise/sor/", filename, "_denoise.laz")
+  lidR::writeLAS(las_denoise, neu_filename, index=TRUE)
+  base::print(i)
+}
+lidR::opt_output_files(ctg2) <- "./Daten/Classify/Noise/ivf/Chunks_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+lidR::classify_noise(ctg2, algorithm = ivf())
+ctg2 <- lidR::readLAScatalog("./Daten/Classify/Noise/ivf/")
+for ( i in 1:base::length(base::list.files(path = "./Daten/Classify/Noise/ivf/"))) {
+  ctg2@data$filename[i] <- lidR::filter_poi(ctg2@data$filename[i], Classification != LASNOISE)
+}
+
+
 
 ## LasCatalog ohne Noise erstellen
 ctg3 <- lidR::readLAScatalog("./Daten/Classify/Noise")
