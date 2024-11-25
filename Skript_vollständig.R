@@ -10,7 +10,7 @@
 ### Vorbereitungen: ###
 
 #Lade nötige R-Packages
-required_packages <- c("lidR", "sf", "ggplot2", "raster", "viridis", "mapview", "future", "parallel", "parallelly", "RCSF", "lasR", "terra")
+required_packages <- c("lidR", "sf", "ggplot2", "raster", "viridis", "mapview", "future", "parallel", "parallelly", "RCSF", "lasR", "terra", "progress", "rminer", "randomForest", "ggmap")
 
 for (pkg in required_packages) {
   if (!require(pkg, character.only = T)) {
@@ -184,4 +184,34 @@ hist(filter_ground(Test)$Z, breaks = seq(-0.6, 0.6, 0.01), main = "", xlab = "El
 #__________________________________________________________________________________________________________________________________________#
 
 ### Plot ###
+
+#Plots einlesen + Überprüfen
+Plots_Vorrat <- utils::read.csv("./Daten/Rohdaten/Daten_FVA/vol_stp_092023.txt", header = TRUE, sep = ";")
+?View()
+utils::View(Plots_Vorrat)
+base::View(Plots_Vorrat)
+base::table(Plots_Vorrat$key)
+base::table(Plots_Vorrat$kspnr)
+base::table(Plots_Vorrat$vol_ha)
+base::table(Plots_Vorrat$hoe_mod_mean)
+base::table(base::is.na.data.frame(Plots_Vorrat))
+
+#Tranformieren von Gaus-Krüger zu ...
+Transform_Plots_Vorrat <- base::data.frame(lon = Plots_Vorrat$rw, lat = Plots_Vorrat$hw, vol_ha = Plots_Vorrat$vol_ha)
+for (i in 1:base::length(Plots_Vorrat$hw)) {
+  point <- sf::st_sfc(sf::st_point(x = c(Plots_Vorrat$rw[i], Plots_Vorrat$hw[i]), dim = XY), crs = 31467)
+  cords <- sf::st_coordinates(sf::st_transform(point, src = 31467, crs = 4326))
+  Transform_Plots_Vorrat$lon[i] <- cords[1]
+  Transform_Plots_Vorrat$lat[i] <- cords[2]
+  print(i)
+}
+
+ggmap::register_stadiamaps(key = "cf938146-9ad9-454f-a6bb-0eafd4013fce")
+plotLocationView <- c(9.35, 51.5, 10, 52)
+
+myMap2 <- ggmap::get_stadiamap(bbox=plotLocationView, maptype="stamen_terrain", crop=TRUE)
+ggmap::ggmap(myMap2)+
+  geom_point(aes(x=lon, y=lat), data=Transform_Plots_Vorrat, alpha=0.5, color="darkred", size = 0.3)
+
+lidR::plot(Transform_Plots_Vorrat, add = TRUE, col = "red")
 
