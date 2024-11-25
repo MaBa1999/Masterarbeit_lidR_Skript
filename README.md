@@ -1,2 +1,2 @@
 # Masterarbeit_lidR_Skript
-Dieses repository dient zur Speicherung meiner R-Skripte und zur Erstellung eines Gesamt-Skriptes
+Dieses repository beinhaltet meine Vorgehensweise in R zum Erstellen eines ABA Modells für den Solling
