@@ -142,10 +142,12 @@ lidR::opt_output_files(ctg3) <- "./Daten/Daten_Rasterize_Digital_terrain_model/C
 
 dtm_tin <- lidR::rasterize_terrain(ctg3,
                                    res = 1,
-                                   algorithm = lidR::tin(extrapolate =  knnidw(k = 10, p = 2, rmax = 50),
+                                   algorithm = lidR::tin(extrapolate = lidR::knnidw(k = 10, p = 2, rmax = 50),
                                    use_class = c(2L, 9L)))
 
+
 lidR::plot_dtm3d(dtm_tin, bg = "white")
+
 
 #__________________________________________________________________________________________________________________________________________#
 
