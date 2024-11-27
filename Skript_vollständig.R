@@ -10,7 +10,23 @@
 ### Vorbereitungen: ###
 
 #Lade nötige R-Packages
-required_packages <- c("lidR", "sf", "ggplot2", "raster", "viridis", "mapview", "future", "parallel", "parallelly", "RCSF", "lasR", "terra", "progress", "rminer", "randomForest", "ggmap")
+required_packages <- c("lidR", #Lidar Daten bearbeiten
+                       "sf", #Geodaten erstellen
+                       "ggplot2", #Karten erstellen
+                       "raster", #Geodaten
+                       "viridis",
+                       "mapview", #Karten erstellen
+                       "future", #Multicore für lidR
+                       "parallel", #Multicore
+                       "parallelly", #Multicore
+                       "RCSF", #Classify Bodenpunkte
+                       "lasR", #Lidar Daten bearbeiten
+                       "terra", #Geodaten
+                       "progress", #Progressbar
+                       "rminer",
+                       "randomForest", #Modelling
+                       "ggmap" #Karten erstellen
+                       )
 
 for (pkg in required_packages) {
   if (!require(pkg, character.only = T)) {
