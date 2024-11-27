@@ -10,22 +10,7 @@
 ### Vorbereitungen: ###
 
 #Lade nötige R-Packages
-required_packages <- c("lidR",
-                       "sf",
-                       "ggplot2",
-                       "raster",
-                       "viridis",
-                       "mapview",
-                       "future",
-                       "parallel",
-                       "parallelly",
-                       "RCSF",
-                       "lasR",
-                       "terra",
-                       "progress", 
-                       "rminer",
-                       "randomForest",
-                       "ggmap")
+required_packages <- c("lidR", "sf", "ggplot2", "raster", "viridis", "mapview", "future", "parallel", "parallelly", "RCSF", "lasR", "terra", "progress", "rminer", "randomForest", "ggmap")
 
 for (pkg in required_packages) {
   if (!require(pkg, character.only = T)) {
@@ -141,7 +126,7 @@ ctg3 <- lidR::classify_ground(ctg3, lidR::csf(sloop_smooth = FALSE,
 
 #Parallelprozessing Einstellen
 cores <- parallelly::availableCores()
-cores <- as.integer(cores/4)
+cores <- as.integer((cores*3)/7)
 future::plan(future::multisession, workers = cores)
 lidR::set_lidr_threads(cores)
 
@@ -160,8 +145,12 @@ dtm_tin <- lidR::rasterize_terrain(ctg3,
                                    algorithm = lidR::tin(extrapolate = lidR::knnidw(k = 10, p = 2, rmax = 50),
                                    use_class = c(2L, 9L)))
 
+terra::writeRaster(dtm_tin, filename = "./Daten/Daten_Rasterize_Digital_terrain_model/Terrainmodel/Terrainmodel.tif", overwrite=FALSE, progress = TRUE)
 
-lidR::plot_dtm3d(dtm_tin, bg = "white")
+x <- "./Daten/Daten_Rasterize_Digital_terrain_model/Terrainmodel/Terrainmodel.tif"
+dtm_tin2 <- terra::rast(x)
+
+lidR::plot_dtm3d(dtm_tin2, bg = "white")
 
 
 #__________________________________________________________________________________________________________________________________________#
@@ -214,10 +203,7 @@ base::table(Plots_Vorrat$hoe_mod_mean)
 base::table(base::is.na.data.frame(Plots_Vorrat))
 
 #Tranformieren von Gaus-Krüger zu ...
-Transform_Plots_Vorrat <- base::data.frame(lon = Plots_Vorrat$rw,
-                                           lat = Plots_Vorrat$hw,
-                                           vol_ha = Plots_Vorrat$vol_ha)
-
+Transform_Plots_Vorrat <- base::data.frame(lon = Plots_Vorrat$rw, lat = Plots_Vorrat$hw, vol_ha = Plots_Vorrat$vol_ha)
 for (i in 1:base::length(Plots_Vorrat$hw)) {
   point <- sf::st_sfc(sf::st_point(x = c(Plots_Vorrat$rw[i], Plots_Vorrat$hw[i]), dim = XY), crs = 31467)
   cords <- sf::st_coordinates(sf::st_transform(point, src = 31467, crs = 4326))
