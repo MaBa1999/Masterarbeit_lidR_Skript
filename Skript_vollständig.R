@@ -25,17 +25,17 @@ required_packages <- c("lidR", #Lidar Daten bearbeiten
                        "progress", #Progressbar
                        "rminer",
                        "randomForest", #Modelling
-                       "ggmap" #Karten erstellen
+                       "tidyr" #Tabelle Spalten zusammenführen
                        )
 
 for (pkg in required_packages) {
-  if (!require(pkg, character.only = T)) {
+  if (!require(pkg, character.only = TRUE)) {
     if (pkg == 'lasR') {
       install.packages('lasR', repos = 'https://r-lidar.r-universe.dev', 'https://cloud.r-project.org')
     } else {
       install.packages(pkg)
     }
-    library(pkg, character.only = T)
+    library(pkg, character.only = TRUE)
   }
 }
 
@@ -186,6 +186,7 @@ cores <- as.integer(cores/3)
 future::plan(future::multisession, workers = cores)
 lidR::set_lidr_threads(cores)
 
+#Berechnung der Normalisierung
 nctg <- lidR::normalize_height(ctg3,
                                algorithm = lidR::tin(extrapolate =  knnidw(k = 10, p = 2, rmax = 50)),
                                use_class = c(2L, 9L))
@@ -194,13 +195,24 @@ nctg <- lidR::normalize_height(ctg3,
 lidR::las_check(nctg)
 lidR:::catalog_laxindex(nctg)
 
+graphics::par(mfrow = c(5,2))
+x <- 1:base::length(nctg@data$filename)
+j <- base::sample(x, size = 10, replace = FALSE, prob = NULL)
+for ( i in 1:10) {
+  Test <- lidR::readLAS(nctg@data$filename[j[i]])  
+  hist(filter_ground(Test)$Z, breaks = seq(-1, 1, 0.01), main = "", xlab = "Elevation")
+}
+
+for ( i in 1:10) {
+  Test <- lidR::readLAS(nctg@data$filename[j[i]])
+  Test <- lidR::filter_poi(Test, Classification == 2L)
+  plot(Test, size = 3, bg = "white", color = "Classification")
+}
 Test <- lidR::readLAS(nctg@data$filename[500])
 Test <- lidR::filter_poi(Test,
                          Classification == 2L)
 plot(Test, size = 3, bg = "white", color = "Classification")
 
-Test <- lidR::readLAS(nctg@data$filename[1000])
-hist(filter_ground(Test)$Z, breaks = seq(-0.6, 0.6, 0.01), main = "", xlab = "Elevation")
 
 
 #__________________________________________________________________________________________________________________________________________#
@@ -209,7 +221,6 @@ hist(filter_ground(Test)$Z, breaks = seq(-0.6, 0.6, 0.01), main = "", xlab = "El
 
 #Plots einlesen + Überprüfen
 Plots_Vorrat <- utils::read.csv("./Daten/Rohdaten/Daten_FVA/vol_stp_092023.txt", header = TRUE, sep = ";")
-?View()
 utils::View(Plots_Vorrat)
 base::View(Plots_Vorrat)
 base::table(Plots_Vorrat$key)
@@ -222,18 +233,45 @@ base::table(base::is.na.data.frame(Plots_Vorrat))
 Transform_Plots_Vorrat <- base::data.frame(lon = Plots_Vorrat$rw, lat = Plots_Vorrat$hw, vol_ha = Plots_Vorrat$vol_ha)
 for (i in 1:base::length(Plots_Vorrat$hw)) {
   point <- sf::st_sfc(sf::st_point(x = c(Plots_Vorrat$rw[i], Plots_Vorrat$hw[i]), dim = XY), crs = 31467)
-  cords <- sf::st_coordinates(sf::st_transform(point, src = 31467, crs = 4326))
+  cords <- sf::st_coordinates(sf::st_transform(point, src = 31467, crs = 25832))
   Transform_Plots_Vorrat$lon[i] <- cords[1]
   Transform_Plots_Vorrat$lat[i] <- cords[2]
   print(i)
 }
 
-ggmap::register_stadiamaps(key = "cf938146-9ad9-454f-a6bb-0eafd4013fce")
-plotLocationView <- c(9.35, 51.5, 10, 52)
-
-myMap2 <- ggmap::get_stadiamap(bbox=plotLocationView, maptype="stamen_terrain", crop=TRUE)
-ggmap::ggmap(myMap2)+
-  geom_point(aes(x=lon, y=lat), data=Transform_Plots_Vorrat, alpha=0.5, color="darkred", size = 0.3)
-
 lidR::plot(Transform_Plots_Vorrat, add = TRUE, col = "red")
+
+#Filtern der benötigten Datenpunkte
+#Vektor für Catalog erstellen
+
+sf::st_write(sf::st_as_sf(nctg, "sf"), "./Daten/Vektor/nctg.shp")
+Ausdehnung_nctg <- sf::read_sf("./Daten/Vektor/nctg.shp")
+sf::st_crs(Ausdehnung_nctg)
+sf::st_crs(Ausdehnung_nctg) <- 25832
+#sf::st_transform(Ausdehnung_nctg, src = 25832, crs = 6258)
+#sf::st_crs(Ausdehnung_nctg)
+#sf::st_crs(Ausdehnung_nctg) <- 6258
+
+
+sf::st_write(sf::st_as_sf(Transform_Plots_Vorrat, coords = c("lon", "lat")), "./Daten/Vektor/Plot_Vorrat_sf.shp")
+Plot_Vorrat_sf <- sf::read_sf("./Daten/Vektor/Plot_Vorrat_sf.shp")
+sf::st_crs(Plot_Vorrat_sf)  <- 4326
+sf::st_transform(Plot_Vorrat_sf, src = 4326, crs = 25832)
+sf::st_crs(Plot_Vorrat_sf)
+sf::st_crs(Plot_Vorrat_sf) <- 25832
+
+Plot_Vorrat_nctg <- sf::st_filter(Plot_Vorrat_sf, Ausdehnung_nctg)
+
+base::plot(Plot_Vorrat_nctg)
+
+
+#__________________________________________________________________________________________________________________________________________#
+
+graphics::par(mfrow = c(1,1))
+plot(nctg)
+plot(Plot_Vorrat_nctg, add = TRUE, col = "red")
+
+opt_filter(nctg) <- "-drop_z_below 0" # Ignore points with elevations below 0
+
+D <- plot_metrics(nctg, .stdmetrics_z, Plot_Vorrat_nctg, radius = 13)
 
