@@ -25,17 +25,24 @@ required_packages <- c("lidR", #Lidar Daten bearbeiten
                        "progress", #Progressbar
                        "rminer",
                        "randomForest", #Modelling
-                       "tidyr" #Tabelle Spalten zusammenführen
+                       "tidyr", #Tabelle Spalten zusammenführen
+                       "dplyr",
+                       "lidRviewer",
+                       "caret"
                        )
 
 for (pkg in required_packages) {
   if (!require(pkg, character.only = TRUE)) {
     if (pkg == 'lasR') {
       install.packages('lasR', repos = 'https://r-lidar.r-universe.dev', 'https://cloud.r-project.org')
-    } else {
+      } else {
+      if (pkg == 'lidRviewer') {
+        install.packages('lidRviewer', repos = c('https://r-lidar.r-universe.dev'))
+        } else {
       install.packages(pkg)
     }
     library(pkg, character.only = TRUE)
+  }
   }
 }
 
@@ -237,6 +244,7 @@ for (i in 1:base::length(Plots_Vorrat$hw)) {
   Transform_Plots_Vorrat$lon[i] <- cords[1]
   Transform_Plots_Vorrat$lat[i] <- cords[2]
   print(i)
+  rm("cords", "point")
 }
 
 lidR::plot(Transform_Plots_Vorrat, add = TRUE, col = "red")
@@ -248,10 +256,6 @@ sf::st_write(sf::st_as_sf(nctg, "sf"), "./Daten/Vektor/nctg.shp")
 Ausdehnung_nctg <- sf::read_sf("./Daten/Vektor/nctg.shp")
 sf::st_crs(Ausdehnung_nctg)
 sf::st_crs(Ausdehnung_nctg) <- 25832
-#sf::st_transform(Ausdehnung_nctg, src = 25832, crs = 6258)
-#sf::st_crs(Ausdehnung_nctg)
-#sf::st_crs(Ausdehnung_nctg) <- 6258
-
 
 sf::st_write(sf::st_as_sf(Transform_Plots_Vorrat, coords = c("lon", "lat")), "./Daten/Vektor/Plot_Vorrat_sf.shp")
 Plot_Vorrat_sf <- sf::read_sf("./Daten/Vektor/Plot_Vorrat_sf.shp")
@@ -264,14 +268,171 @@ Plot_Vorrat_nctg <- sf::st_filter(Plot_Vorrat_sf, Ausdehnung_nctg)
 
 base::plot(Plot_Vorrat_nctg)
 
+base::rm("Plot_Vorrat_sf", "Transform_Plots_Vorrat", "Plots_Vorrat", "Ausdehnung_nctg")
 
 #__________________________________________________________________________________________________________________________________________#
+
+### Plot_Metriken ###
 
 graphics::par(mfrow = c(1,1))
 plot(nctg)
 plot(Plot_Vorrat_nctg, add = TRUE, col = "red")
 
+nctg <- lidR::readLAScatalog("./Daten/Daten_Hoehennormalisierung/", filter = "-drop_class 18")
+lidR::opt_chunk_buffer(nctg) <- 50
+lidR::opt_chunk_size(nctg) <- 530
+lidR::opt_restart(nctg) <- 1
+lidR::opt_laz_compression(nctg) <- TRUE
+lidR::opt_output_files(nctg) <- "./Daten/Daten_plot_metrics/Plot_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+
+#Parallelprozessing Einstellen
+cores <- parallelly::availableCores()
+cores <- as.integer(cores)
+future::plan(future::multisession, workers = cores)
+lidR::set_lidr_threads(cores)
+data.table::setDTthreads(restore_after_fork = TRUE, percent = 100)
+
 opt_filter(nctg) <- "-drop_z_below 0" # Ignore points with elevations below 0
+
+plot(nctg)
+plot(Plot_Vorrat_nctg[1066,], add = TRUE, col = 'red')
+
+Plot_Vorrat_nctg <- Plot_Vorrat_nctg[- 1066,]
 
 D <- plot_metrics(nctg, .stdmetrics_z, Plot_Vorrat_nctg, radius = 13)
 
+m <- lm(vol_ha ~ zq85, data = D)
+summary(m)
+
+plot(D$vol_ha, predict(m))
+abline(0,1)
+
+#__________________________________________________________________________________________________________________________________________#
+
+### Hold-out ###
+
+boxplot(Plot_Vorrat_nctg$vol_ha)
+hist(Plot_Vorrat_nctg$vol_ha)
+median(Plot_Vorrat_nctg$vol_ha)
+mean(Plot_Vorrat_nctg$vol_ha)
+
+Einteilung <- max(Plot_Vorrat_nctg$vol_ha) - min(Plot_Vorrat_nctg$vol_ha)
+Einteilung <- Einteilung / 3
+
+Klasse1 <- dplyr::filter(Plot_Vorrat_nctg, vol_ha < Einteilung) 
+Klasse2 <- dplyr::filter(Plot_Vorrat_nctg, vol_ha > Einteilung & vol_ha < (Einteilung * 2)) 
+Klasse3 <- dplyr::filter(Plot_Vorrat_nctg, vol_ha > (Einteilung * 2)) 
+
+holdout_Klasse1 <- rminer::holdout(Klasse1$vol_ha, ratio = .8, mode = 'random')
+holdout_Klasse2 <- rminer::holdout(Klasse2$vol_ha, ratio = .8, mode = 'random')
+holdout_Klasse3 <- rminer::holdout(Klasse3$vol_ha, ratio = .8, mode = 'random')
+
+Train1 <- Klasse1[holdout_Klasse1$tr,]
+Test1 <- Klasse1[holdout_Klasse1$ts,]
+
+Train2 <- Klasse2[holdout_Klasse2$tr,]
+Test2 <- Klasse2[holdout_Klasse2$ts,]
+
+Train3 <- Klasse3[holdout_Klasse3$tr,]
+Test3 <- Klasse3[holdout_Klasse3$ts,]
+
+Train_all <- base::rbind(Train1, Train2, Train3)
+Test_all <- base::rbind(Test1, Test2, Test3)
+
+nctg <- lidR::readLAScatalog("./Daten/Daten_Hoehennormalisierung/", filter = "-drop_class 18")
+lidR::opt_chunk_buffer(nctg) <- 50
+lidR::opt_chunk_size(nctg) <- 530
+lidR::opt_restart(nctg) <- 1
+lidR::opt_laz_compression(nctg) <- TRUE
+lidR::opt_output_files(nctg) <- "./Daten/Train_Plot_metriken/Plot_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+
+#Parallelprozessing Einstellen
+cores <- parallelly::availableCores()
+cores <- as.integer(cores)
+future::plan(future::multisession, workers = cores)
+lidR::set_lidr_threads(cores)
+data.table::setDTthreads(restore_after_fork = TRUE, percent = 100)
+
+opt_filter(nctg) <- "-drop_z_below 0" # Ignore points with elevations below 0
+
+lidR::plot(nctg)
+lidR::plot(Train_all, add = TRUE, col = 'red')
+
+PlotMetriksTrain <- lidR::plot_metrics(nctg, .stdmetrics_z, Train_all, radius = 13)
+
+
+lidR::opt_output_files(nctg) <- "./Daten/Test_Plot_metriken/Plot_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+
+lidR::plot(nctg)
+lidR::plot(Test_all, add = TRUE, col = 'red')
+Test_all <- Test_all[- 202,]
+lidR::plot(nctg)
+lidR::plot(Test_all[202,], add = TRUE, col = 'red')
+
+PlotMetriksTest <- lidR::plot_metrics(nctg, .stdmetrics_z, Test_all, radius = 13)
+
+#__________________________________________________________________________________________________________________________________________#
+
+### Random Forest ###
+load("C:/Masterarbeit_R/Workspace/Holdout.RData")
+
+table(is.na.data.frame(PlotMetriksTest))
+table(is.na.data.frame(PlotMetriksTrain))
+
+PlotMetriksTest <- stats::na.omit(PlotMetriksTest)
+PlotMetriksTrain <- stats::na.omit(PlotMetriksTrain)
+
+data <- sf::st_drop_geometry(base::subset(PlotMetriksTrain, select = c("vol_ha", "zq85")))
+xtest <- sf::st_drop_geometry(base::subset(PlotMetriksTest, select = c("vol_ha", "zq85")))
+ytest <- base::as.data.frame(PlotMetriksTest$vol_ha)
+
+#Parallelprozessing Einstellen
+cores <- parallelly::availableCores()
+cores <- as.integer(cores)
+future::plan(future::multisession, workers = cores)
+lidR::set_lidr_threads(cores)
+#future::plan(future::sequential)
+
+Model <- randomForest::randomForest(vol_ha ~ zq85, data = data, ntree = 20000)
+
+Model
+
+#Überpfrüfen der Daten im Random_forrest
+
+varImp(Model)
+varImpPlot(Model)
+Model$importance
+
+
+#__________________________________________________________________________________________________________________________________________#
+
+### W-to-W ###
+
+#Parallelprozessing Einstellen
+cores <- parallelly::availableCores()
+cores <- as.integer(cores)
+future::plan(future::multisession, workers = cores)
+lidR::set_lidr_threads(cores)
+data.table::setDTthreads(restore_after_fork = TRUE, percent = 100)
+
+nctg <- lidR::readLAScatalog("./Daten/Daten_Hoehennormalisierung/", filter = "-drop_class 18")
+lidR::opt_chunk_buffer(nctg) <- 50
+lidR::opt_chunk_size(nctg) <- 530
+lidR::opt_restart(nctg) <- 1
+lidR::opt_laz_compression(nctg) <- TRUE
+lidR::opt_output_files(nctg) <- "./Daten/Wall_to_wall/Plot_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+opt_filter(nctg) <- "-drop_z_below 0" # Ignore points with elevations below 0
+
+metrics_w2w <- pixel_metrics(nctg, .stdmetrics_z, res = 23, pkg = "terra")
+
+plot(metrics_w2w$zq85)
+plot(metrics_w2w$zmean)
+plot(metrics_w2w$pzabovezmean)
+
+#__________________________________________________________________________________________________________________________________________#
+
+### Karte ###
+
+HL_pred <- predict(metrics_w2w, Model)
+
+plot(HL_pred)
