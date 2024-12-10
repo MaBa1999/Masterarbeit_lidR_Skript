@@ -232,19 +232,20 @@ x <- 1:base::length(nctg@data$filename)
 j <- base::sample(x, size = 10, replace = FALSE, prob = NULL)
 for ( i in 1:10) {
   Test <- lidR::readLAS(nctg@data$filename[j[i]])  
-  hist(filter_ground(Test)$Z, breaks = seq(-1, 1, 0.01), main = "", xlab = "Elevation")
+  graphics::hist(lidR::filter_ground(Test)$Z, breaks = seq(-1, 1, 0.01), main = "", xlab = "Elevation")
 }
 
 for ( i in 1:10) {
   Test <- lidR::readLAS(nctg@data$filename[j[i]])
   Test <- lidR::filter_poi(Test, Classification == 2L)
-  plot(Test, size = 3, bg = "white", color = "Classification")
+  base::plot(Test, size = 3, bg = "white", color = "Classification")
 }
 Test <- lidR::readLAS(nctg@data$filename[500])
 Test <- lidR::filter_poi(Test,
                          Classification == 2L)
-plot(Test, size = 3, bg = "white", color = "Classification")
+base::plot(Test, size = 3, bg = "white", color = "Classification")
 
+rm("Test", "i", "j", "x")
 base::save.image("./Workspace/Normalisiert.RData")
 
 #__________________________________________________________________________________________________________________________________________#
@@ -296,7 +297,7 @@ Plot_Vorrat_nctg <- sf::st_filter(Plot_Vorrat_sf, Ausdehnung_nctg)
 
 base::plot(Plot_Vorrat_nctg)
 
-base::rm("Plot_Vorrat_sf", "Transform_Plots_Vorrat", "Plots_Vorrat", "Ausdehnung_nctg")
+base::rm("Plot_Vorrat_sf", "Transform_Plots_Vorrat", "Plots_Vorrat", "Ausdehnung_nctg", "i")
 
 base::save.image("./Workspace/Plots.RData")
 
@@ -308,8 +309,8 @@ base::rm(list = ls())
 base::load("./Workspace/Plots.RData")
 
 graphics::par(mfrow = c(1,1))
-plot(nctg)
-plot(Plot_Vorrat_nctg, add = TRUE, col = "red")
+lidR::plot(nctg)
+lidR::plot(Plot_Vorrat_nctg, add = TRUE, col = "red")
 
 nctg <- lidR::readLAScatalog("./Daten/Daten_Hoehennormalisierung/", filter = "-drop_class 18")
 lidR::opt_chunk_buffer(nctg) <- 50
@@ -325,14 +326,14 @@ future::plan(future::multisession, workers = cores)
 lidR::set_lidr_threads(cores)
 data.table::setDTthreads(restore_after_fork = TRUE, percent = 100)
 
-opt_filter(nctg) <- "-drop_z_below 0" # Ignore points with elevations below 0
+lidR::opt_filter(nctg) <- "-drop_z_below 0" # Ignore points with elevations below 0
 
-plot(nctg)
-plot(Plot_Vorrat_nctg[1066,], add = TRUE, col = 'red')
+lidR::plot(nctg)
+lidR::plot(Plot_Vorrat_nctg[1066,], add = TRUE, col = 'red')
 
 Plot_Vorrat_nctg <- Plot_Vorrat_nctg[- 1066,]
 
-D <- plot_metrics(nctg, .stdmetrics_z, Plot_Vorrat_nctg, radius = 13)
+D <- lidR::plot_metrics(nctg, .stdmetrics_z, Plot_Vorrat_nctg, radius = 13)
 
 m <- lm(vol_ha ~ zq85, data = D)
 summary(m)
@@ -403,6 +404,7 @@ lidR::plot(Train_all, add = TRUE, col = 'red')
 
 #Plotmetriken für Trainingsdaten
 PlotMetriksTrain <- lidR::plot_metrics(nctg, .stdmetrics_z, Train_all, radius = 13)
+PlotMetriks_s <- lidR::plot_metrics(nctg, .stdmetrics, Train_all, radius = 13)
 
 #Plotmetriken für Testdaten
 lidR::opt_output_files(nctg) <- "./Daten/Test_Plot_metriken/Plot_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
@@ -416,6 +418,7 @@ lidR::plot(Test_all[202,], add = TRUE, col = 'red')
 
 #Plotmetriken für Testdatensatz
 PlotMetriksTest <- lidR::plot_metrics(nctg, .stdmetrics_z, Test_all, radius = 13)
+PlotMetriks_s_Test <- lidR::plot_metrics(nctg, .stdmetrics, Test_all, radius = 13)
 
 base::save.image("./Workspace/Holdout.RData")
 
@@ -427,7 +430,11 @@ load("C:/Masterarbeit_R/Workspace/Holdout.RData")
 
 #Überprüfen und entfernen von leeren Werten
 table(is.na.data.frame(PlotMetriksTest))
+table(is.na.data.frame(PlotMetriks_s_Test))
 table(is.na.data.frame(PlotMetriksTrain))
+table(is.na.data.frame(PlotMetriks_s))
+PlotMetriks_s_Test <- stats::na.omit(PlotMetriks_s_Test)
+PlotMetriks_s <- stats::na.omit(PlotMetriks_s)
 PlotMetriksTest <- stats::na.omit(PlotMetriksTest)
 PlotMetriksTrain <- stats::na.omit(PlotMetriksTrain)
 
@@ -435,6 +442,10 @@ PlotMetriksTrain <- stats::na.omit(PlotMetriksTrain)
 data <- sf::st_drop_geometry(PlotMetriksTrain)
 xtest <- sf::st_drop_geometry(PlotMetriksTest)
 ytest <- PlotMetriksTest$vol_ha
+data <- sf::st_drop_geometry(PlotMetriks_s)
+xtest <- sf::st_drop_geometry(PlotMetriks_s_Test)
+ytest <- PlotMetriks_s_Test$vol_ha
+
 
 # Parallelprozessing Einstellen
 cores <- parallelly::availableCores()
@@ -521,7 +532,7 @@ preProc <- preProcess(subset(data_transformed, select = -vol_ha), method = "corr
 data_transformed <- predict(preProc, newdata = data_transformed)
 train_control <- caret::trainControl(method = "cv", number = 10)
 rf_model3 <- caret::train(vol_ha ~ ., data = data_transformed, method = "rf", ntree = 1000, maximize = TRUE, trControl = train_control)
-rf_model3
+rf_model3; plot(caret::varImp(rf_model3))
 rf_model3$finalModel$mse[length(rf_model3$finalModel$mse)]
 rf_model3$finalModel$rsq[length(rf_model3$finalModel$rsq)] *100
 data_test <- PlotMetriksTest
@@ -529,6 +540,27 @@ preProcT <- preProcess(data_test, method = c("center", "scale"))
 data_test <- predict(preProcT, newdata = data_test)
 predictions <- predict(rf_model3, newdata = data_test)
 postResample(predictions, PlotMetriksTest$vol_ha)
+
+
+## Erweitertes Random Forest ##
+data <- sf::st_drop_geometry(PlotMetriks_s)
+xtest <- sf::st_drop_geometry(PlotMetriks_s_Test)
+ytest <- PlotMetriks_s_Test$vol_ha
+
+preProc <- preProcess(data, method = c("center", "scale"))
+data_transformed <- predict(preProc, newdata = data)
+preProc <- preProcess(subset(data_transformed, select = -vol_ha), method = "corr")
+data_transformed <- predict(preProc, newdata = data_transformed)
+train_control <- caret::trainControl(method = "cv", number = 10)
+rf_model3 <- caret::train(vol_ha ~ ., data = data_transformed, method = "rf", ntree = 1000, maximize = TRUE, trControl = train_control)
+rf_model3; plot(caret::varImp(rf_model3))
+rf_model3$finalModel$mse[length(rf_model3$finalModel$mse)]
+rf_model3$finalModel$rsq[length(rf_model3$finalModel$rsq)] *100
+data_test <- xtest
+preProcT <- preProcess(data_test, method = c("center", "scale"))
+data_test <- predict(preProcT, newdata = data_test)
+predictions <- predict(rf_model3, newdata = data_test)
+postResample(predictions, ytest)
 
 base::save.image("./Workspace/RandomForest.RData")
 
@@ -555,7 +587,7 @@ lidR::opt_laz_compression(nctg) <- TRUE
 lidR::opt_output_files(nctg) <- "./Daten/Wall_to_wall/Plot_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
 opt_filter(nctg) <- "-drop_z_below 0" # Ignore points with elevations below 0
 
-metrics_w2w <- pixel_metrics(nctg, .stdmetrics_z, res = 23, pkg = "terra")
+metrics_w2w <- pixel_metrics(nctg, .stdmetrics, res = 23, pkg = "terra")
 
 terra::writeRaster(metrics_w2w, "./Daten/WalltoWall.tif", overwrite = TRUE, progress = TRUE)
 
@@ -581,6 +613,9 @@ Pred <- raster::predict(metrics_w2w, model = rf_model1, filname = "./Ergebnisse/
 terra::writeRaster(Pred, "./Ergebnisse/Daten/Vorratskarte_geschaetzt.tif", overwrite = TRUE, progress = TRUE)
 
 lidR::plot(Pred)
+
+Pred <- raster::predict(metrics_w2w, model = rf_model3, filname = "./Ergebnisse/Daten/Vorratskarte_geschaetzt.tif", progress = "text", na.rm = TRUE)
+terra::writeRaster(Pred, "./Ergebnisse/Daten/Vorratskarte_geschaetzt.tif", overwrite = TRUE, progress = TRUE)
 
 base::save.image("./Workspace/Karte.RData")
 
@@ -637,3 +672,19 @@ ggplot2::ggplot(data = Kombiniert) +
   ggplot2::scale_fill_manual(values = c("Verteilung_Preq" = "orange", "Plots_Vorrat" = "blue"), name = "Kombiniert") +
   ggplot2::labs(title = "Häufigkeitsverteilung Vergleich", x = "Volumen pro Hektar", y = "Häufigkeit") +
   ggplot2::theme_minimal()
+
+Pred <- terra::rast("./Ergebnisse/Daten/Vorratskarte_geschaetzt.tif")
+graphics::par(mfrow = c(1,1))
+lidR::plot(Pred, mapview = TRUE)
+lidR::plot(nctg, add = TRUE)
+
+for (i in 1:base::length(nctg@data$filename)) {
+  las <- lidR::readLAS(nctg@data$filename[i])
+  Zuschnitte <- terra::crop(Pred, las, snap = "near")
+  terra::writeRaster(Zuschnitte, paste("./Ergebnisse/Daten/Vorratskarte_zugeschnitten_", tools::file_path_sans_ext(base::basename(nctg@data$filename[i])), "_", i, ".tif"))
+  base::print(i)
+}
+lidR::plot(Zuschnitte)
+
+las <- lidR::readLAS(nctg@data$filename[118])
+lidR::plot(las)
