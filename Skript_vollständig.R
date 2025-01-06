@@ -82,6 +82,10 @@ cores <- as.integer(cores/4)
 future::plan(future::multisession, workers = cores)
 lidR::set_lidr_threads(cores)
 
+## Punkteindexierung erstellen ##
+lidR:::catalog_laxindex(ctg)
+lidR::las_check(ctg)
+
 #Filtern der Überlappungen
 lidR::opt_laz_compression(ctg) <- TRUE
 lidR::opt_output_files(ctg) <- "./Daten/Zwischendaten/filter_doppelte_punkte/Chunks_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
@@ -141,7 +145,7 @@ base::load("./Workspace/Daten_Clas_Noise.RData")
 
 #Parallelprozessing einstellen
 cores <- parallelly::availableCores()
-cores <- as.integer(cores)
+cores <- base::as.integer(cores)
 future::plan(future::multisession, workers = cores)
 lidR::set_lidr_threads(cores)
 
@@ -169,7 +173,7 @@ base::load("./Workspace/Daten_Clas_Ground.RData")
 
 #Parallelprozessing Einstellen
 cores <- parallelly::availableCores()
-cores <- as.integer((cores*3)/7)
+cores <- base::as.integer((cores*3)/7)
 future::plan(future::multisession, workers = cores)
 lidR::set_lidr_threads(cores)
 
@@ -185,8 +189,8 @@ lidR::opt_output_files(ctg3) <- "./Daten/Daten_Rasterize_Digital_terrain_model/C
 
 dtm_tin <- lidR::rasterize_terrain(ctg3,
                                    res = 1,
-                                   algorithm = lidR::tin(extrapolate = lidR::knnidw(k = 10, p = 2, rmax = 50),
-                                   use_class = c(2L, 9L)))
+                                   algorithm = lidR::tin(),
+                                   use_class = c(2L, 9L))
 
 terra::writeRaster(dtm_tin, filename = "./Daten/Daten_Rasterize_Digital_terrain_model/Terrainmodel/Terrainmodel.tif", overwrite=FALSE, progress = TRUE)
 
@@ -220,14 +224,14 @@ lidR::set_lidr_threads(cores)
 
 #Berechnung der Normalisierung
 nctg <- lidR::normalize_height(ctg3,
-                               algorithm = lidR::tin(extrapolate =  knnidw(k = 10, p = 2, rmax = 50)),
+                               algorithm = lidR::tin(),
                                use_class = c(2L, 9L))
 
 # Überprüfen der Normalisierung
 lidR::las_check(nctg)
 lidR:::catalog_laxindex(nctg)
 
-graphics::par(mfrow = c(5,2))
+graphics::par(mfrow = c(5,2), mar = c(2, 2, 2, 2))
 x <- 1:base::length(nctg@data$filename)
 j <- base::sample(x, size = 10, replace = FALSE, prob = NULL)
 for ( i in 1:10) {
@@ -238,32 +242,82 @@ for ( i in 1:10) {
 for ( i in 1:10) {
   Test <- lidR::readLAS(nctg@data$filename[j[i]])
   Test <- lidR::filter_poi(Test, Classification == 2L)
-  base::plot(Test, size = 3, bg = "white", color = "Classification")
+  lidR::plot(Test, size = 3, bg = "white", color = "Classification")
 }
 Test <- lidR::readLAS(nctg@data$filename[500])
 Test <- lidR::filter_poi(Test,
                          Classification == 2L)
-base::plot(Test, size = 3, bg = "white", color = "Classification")
+lidR::plot(Test, size = 3, bg = "white", color = "Classification")
+
+graphics::par(mfrow = c(1,1), mar = c(5, 4, 4, 2))
 
 rm("Test", "i", "j", "x")
 base::save.image("./Workspace/Normalisiert.RData")
+
+
+#__________________________________________________________________________________________________________________________________________#
+
+### Canopy Height model ###
+
+base::rm(list = ls())
+load("./Workspace/Normalisiert.RData")
+
+nctg <- lidR::readLAScatalog("./Daten/Daten_Hoehennormalisierung/", filter = "-drop_class 18")
+lidR::opt_chunk_buffer(nctg) <- 400
+lidR::opt_chunk_size(nctg) <- 1500
+lidR::opt_restart(nctg) <- 1
+lidR::opt_laz_compression(nctg) <- TRUE
+lidR::opt_output_files(nctg) <- "./Daten/CHM/Chunks_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+
+#Parallelprozessing Einstellen
+cores <- parallelly::availableCores()
+cores <- as.integer(cores/4)
+future::plan(future::multisession, workers = cores)
+lidR::set_lidr_threads(cores)
+data.table::setDTthreads(restore_after_fork = TRUE, percent = 100)
+
+chm <- lidR::rasterize_canopy(nctg, res = 1, algorithm = lidR::dsmtin())
+
+terra::writeRaster(chm, filename = "./Daten/CHM.tif", overwrite=FALSE, progress = TRUE)
+
+x <- "./Daten/CHM.tif"
+chm <- terra::rast(x)
+
+lidR::plot_dtm3d(chm, bg = "white")
+terra::plot(chm)
+
+lidR::opt_output_files(nctg) <- "./Daten/CHM2/Chunks_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+
+chm2 <- lidR::rasterize_canopy(nctg, res = 1, algorithm = lidR::p2r(subcircle = 0, na.fill = lidR::knnidw(k = 10, p = 2, rmax = 50)))
+
+terra::writeRaster(chm2, filename = "./Daten/CHM2.tif", overwrite=FALSE, progress = TRUE)
+
+x <- "./Daten/CHM.tif"
+chm2 <- terra::rast(x)
+
+lidR::plot_dtm3d(chm2, bg = "white")
+terra::plot(chm2)
+
+base::save.image("./Workspace/chm.RData")
 
 #__________________________________________________________________________________________________________________________________________#
 
 ### Plot ###
 
 base::rm(list = ls())
-load("./Worksapce/Normalisiert.RData")
+load("./Workspace/Normalisiert.RData")
 
 #Plots einlesen + Überprüfen
 Plots_Vorrat <- utils::read.csv("./Daten/Rohdaten/Daten_FVA/vol_stp_092023.txt", header = TRUE, sep = ";")
 utils::View(Plots_Vorrat)
-base::View(Plots_Vorrat)
 base::table(Plots_Vorrat$key)
 base::table(Plots_Vorrat$kspnr)
 base::table(Plots_Vorrat$vol_ha)
 base::table(Plots_Vorrat$hoe_mod_mean)
 base::table(base::is.na.data.frame(Plots_Vorrat))
+graphics::boxplot(Plots_Vorrat$vol_ha, ylab = "Volumen je Hektar (m³/ha)", main = "Boxplot NW-FVA Volumen je Messpunkt")
+graphics::boxplot(Plots_Vorrat$hoe_mod_mean, ylab = "mittlere Höhe je Plot (m)", main = "Boxplot NW-FVA mittlere Höhe je Messpunkt")
+
 
 #Tranformieren von Gaus-Krüger zu ...
 Transform_Plots_Vorrat <- base::data.frame(lon = Plots_Vorrat$rw, lat = Plots_Vorrat$hw, vol_ha = Plots_Vorrat$vol_ha)
@@ -333,13 +387,13 @@ lidR::plot(Plot_Vorrat_nctg[1066,], add = TRUE, col = 'red')
 
 Plot_Vorrat_nctg <- Plot_Vorrat_nctg[- 1066,]
 
-D <- lidR::plot_metrics(nctg, .stdmetrics_z, Plot_Vorrat_nctg, radius = 13)
+D <- lidR::plot_metrics(nctg, lidR::.stdmetrics_z, Plot_Vorrat_nctg, radius = 13)
 
-m <- lm(vol_ha ~ zq85, data = D)
-summary(m)
+m <- stats::lm(vol_ha ~ zq85, data = D)
+base::summary(m)
 
-plot(D$vol_ha, predict(m))
-abline(0,1)
+plot(D$vol_ha, stats::predict(m), xlab = "Gemessenes Volumen (m³/ha)", ylab = "geschätztes Volumen (m³/ha)")
+graphics::abline(0,1)
 
 base::save.image("./Workspace/Plot_metriken.RData")
 
@@ -351,13 +405,13 @@ base::rm(list = ls())
 base::load("./Workspace/Plot_metriken.RData")
 
 #Betrachtung der Volumenverteilung
-boxplot(Plot_Vorrat_nctg$vol_ha)
-hist(Plot_Vorrat_nctg$vol_ha)
-median(Plot_Vorrat_nctg$vol_ha)
-mean(Plot_Vorrat_nctg$vol_ha)
+graphics::boxplot(Plot_Vorrat_nctg$vol_ha)
+graphics::hist(Plot_Vorrat_nctg$vol_ha)
+stats::median(Plot_Vorrat_nctg$vol_ha)
+base::mean(Plot_Vorrat_nctg$vol_ha)
 
 #Aufteilen der Daten in drei Klassen
-Einteilung <- max(Plot_Vorrat_nctg$vol_ha) - min(Plot_Vorrat_nctg$vol_ha)
+Einteilung <- base::max(Plot_Vorrat_nctg$vol_ha) - base::min(Plot_Vorrat_nctg$vol_ha)
 Einteilung <- Einteilung / 3
 
 Klasse1 <- dplyr::filter(Plot_Vorrat_nctg, vol_ha < Einteilung) 
@@ -391,20 +445,19 @@ lidR::opt_output_files(nctg) <- "./Daten/Train_Plot_metriken/Plot_coordinate_{ID
 
 #Parallelprozessing Einstellen
 cores <- parallelly::availableCores()
-cores <- as.integer(cores)
+cores <- base::as.integer(cores)
 future::plan(future::multisession, workers = cores)
 lidR::set_lidr_threads(cores)
 data.table::setDTthreads(restore_after_fork = TRUE, percent = 100)
 
-opt_filter(nctg) <- "-drop_z_below 0"
+lidR::opt_filter(nctg) <- "-drop_z_below 0"
 
 #Überprüfen auf Grenzplots
 lidR::plot(nctg)
 lidR::plot(Train_all, add = TRUE, col = 'red')
 
 #Plotmetriken für Trainingsdaten
-PlotMetriksTrain <- lidR::plot_metrics(nctg, .stdmetrics_z, Train_all, radius = 13)
-PlotMetriks_s <- lidR::plot_metrics(nctg, .stdmetrics, Train_all, radius = 13)
+PlotMetriksTrain <- lidR::plot_metrics(nctg, lidR::.stdmetrics, Train_all, radius = 13)
 
 #Plotmetriken für Testdaten
 lidR::opt_output_files(nctg) <- "./Daten/Test_Plot_metriken/Plot_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
@@ -417,8 +470,7 @@ lidR::plot(nctg)
 lidR::plot(Test_all[202,], add = TRUE, col = 'red')
 
 #Plotmetriken für Testdatensatz
-PlotMetriksTest <- lidR::plot_metrics(nctg, .stdmetrics_z, Test_all, radius = 13)
-PlotMetriks_s_Test <- lidR::plot_metrics(nctg, .stdmetrics, Test_all, radius = 13)
+PlotMetriksTest <- lidR::plot_metrics(nctg, lidR::.stdmetrics, Test_all, radius = 13)
 
 base::save.image("./Workspace/Holdout.RData")
 
@@ -430,11 +482,7 @@ load("C:/Masterarbeit_R/Workspace/Holdout.RData")
 
 #Überprüfen und entfernen von leeren Werten
 table(is.na.data.frame(PlotMetriksTest))
-table(is.na.data.frame(PlotMetriks_s_Test))
 table(is.na.data.frame(PlotMetriksTrain))
-table(is.na.data.frame(PlotMetriks_s))
-PlotMetriks_s_Test <- stats::na.omit(PlotMetriks_s_Test)
-PlotMetriks_s <- stats::na.omit(PlotMetriks_s)
 PlotMetriksTest <- stats::na.omit(PlotMetriksTest)
 PlotMetriksTrain <- stats::na.omit(PlotMetriksTrain)
 
@@ -442,10 +490,6 @@ PlotMetriksTrain <- stats::na.omit(PlotMetriksTrain)
 data <- sf::st_drop_geometry(PlotMetriksTrain)
 xtest <- sf::st_drop_geometry(PlotMetriksTest)
 ytest <- PlotMetriksTest$vol_ha
-data <- sf::st_drop_geometry(PlotMetriks_s)
-xtest <- sf::st_drop_geometry(PlotMetriks_s_Test)
-ytest <- PlotMetriks_s_Test$vol_ha
-
 
 # Parallelprozessing Einstellen
 cores <- parallelly::availableCores()
@@ -454,7 +498,7 @@ future::plan(future::multisession, workers = cores)
 lidR::set_lidr_threads(cores)
 
 #random Forest mit allen Variablen
-Model <- randomForest::randomForest(vol_ha ~ ., data = data, ntree = 1000, xtest = subset(xtest, select = -vol_ha), ytest = ytest)
+Model <- randomForest::randomForest(vol_ha ~ ., data = data, xtest = subset(xtest, select = -vol_ha), ytest = ytest)
 Model
 
 #Testen des Random Forests
@@ -467,22 +511,6 @@ Model$test$rsq[length(Model$test$rsq)] * 100
 caret::varImp(Model) == Model$importance
 randomForest::varImpPlot(Model)
 
-#___________________________________________________________#
-### Model-Verbesserungen ###
-
-## Verbesserzes RandomForesz
-data <- sf::st_drop_geometry(PlotMetriksTrain)
-xtest <- sf::st_drop_geometry(PlotMetriksTest)
-ytest <- PlotMetriksTest$vol_ha
-data <- subset(data, select = c(vol_ha, zmean, zsd, zskew, zkurt, zentropy, pzabovezmean, pzabove2, zq5, zq20, zq35, zq50, zq65, zq80, zq95, zpcum1, zpcum3, zpcum5, zpcum7, zpcum9))
-xtest <- subset(xtest, select = c(vol_ha, zmean, zsd, zskew, zkurt, zentropy, pzabovezmean, pzabove2, zq5, zq20, zq35, zq50, zq65, zq80, zq95, zpcum1, zpcum3, zpcum5, zpcum7, zpcum9))
-Model <- randomForest::randomForest(vol_ha ~ ., data = data, ntree = 1000, xtest = subset(xtest, select = -vol_ha), ytest = ytest)
-Model
-randomForest::varImpPlot(Model)
-
-#Überpfrüfen der Daten im Random_forrest
-caret::varImp(Model) == Model$importance
-randomForest::varImpPlot(Model)
 
 #___________________________________________________________#
 
@@ -497,11 +525,10 @@ PlotMetriksTest <- stats::na.omit(PlotMetriksTest)
 PlotMetriksTrain <- stats::na.omit(PlotMetriksTrain)
 PlotMetriksTest <- sf::st_drop_geometry(PlotMetriksTest)
 PlotMetriksTrain <- sf::st_drop_geometry(PlotMetriksTrain)
-#data <- rbind(PlotMetriksTest, PlotMetriksTrain)
 
 #einfaches Model mit allen Variablen
 train_control <- caret::trainControl(method = "cv", number = 10)
-rf_model1 <- caret::train(vol_ha ~ ., data = PlotMetriksTrain, method = "rf", ntree = 1000, maximize = TRUE, trControl = train_control)
+rf_model1 <- caret::train(vol_ha ~ ., data = PlotMetriksTrain, method = "rf", maximize = TRUE, trControl = train_control)
 rf_model1; plot(caret::varImp(rf_model1))
 
 rf_model1$finalModel$mse[length(rf_model1$finalModel$mse)]
@@ -517,7 +544,7 @@ data_preprozess
 sel <- c(data_preprozess$method$remove)
 data_train <- subset(PlotMetriksTrain, select = -which(names(PlotMetriksTrain) %in% sel))
 train_control <- caret::trainControl(method = "cv", number = 10)
-rf_model2 <- caret::train(vol_ha ~ ., data = data_train, method = "rf", ntree = 1000, maximize = TRUE, trControl = train_control)
+rf_model2 <- caret::train(vol_ha ~ ., data = data_train, method = "rf", maximize = TRUE, trControl = train_control)
 rf_model2; plot(caret::varImp(rf_model2))
 rf_model2$finalModel$mse[length(rf_model2$finalModel$mse)]
 rf_model2$finalModel$rsq[length(rf_model2$finalModel$rsq)] *100
@@ -525,44 +552,62 @@ predictions <- predict(rf_model2, newdata = PlotMetriksTest)
 postResample(predictions, PlotMetriksTest$vol_ha)
 
 ## Erweitertes Aufräumen Testen
-data <- PlotMetriksTrain
-preProc <- preProcess(data, method = c("center", "scale"))
-data_transformed <- predict(preProc, newdata = data)
-preProc <- preProcess(subset(data_transformed, select = -vol_ha), method = "corr")
-data_transformed <- predict(preProc, newdata = data_transformed)
+#preprocess Train
+data <- subset(PlotMetriksTrain, select = -vol_ha)
+preProc <- caret::preProcess(data, method = c("center", "scale", "corr"), na.remove = TRUE)
+preProc
+data_transformed <- stats::predict(preProc, newdata = data)
+data_transformed <- base::data.frame(data_transformed, vol_ha = PlotMetriksTrain$vol_ha)
+
+#Modell 3
 train_control <- caret::trainControl(method = "cv", number = 10)
-rf_model3 <- caret::train(vol_ha ~ ., data = data_transformed, method = "rf", ntree = 1000, maximize = TRUE, trControl = train_control)
+rf_model3 <- caret::train(vol_ha ~ ., data = data_transformed, method = "rf", maximize = TRUE, trContol = train_control)
 rf_model3; plot(caret::varImp(rf_model3))
 rf_model3$finalModel$mse[length(rf_model3$finalModel$mse)]
 rf_model3$finalModel$rsq[length(rf_model3$finalModel$rsq)] *100
+
+#Test Modell 3
 data_test <- PlotMetriksTest
-preProcT <- preProcess(data_test, method = c("center", "scale"))
-data_test <- predict(preProcT, newdata = data_test)
-predictions <- predict(rf_model3, newdata = data_test)
-postResample(predictions, PlotMetriksTest$vol_ha)
+preProcT <- subset(PlotMetriksTest, select = -vol_ha)
+preProcT <- caret::preProcess(preProcT, method = c("center", "scale"), na.remove = TRUE)
+data_test <- stats::predict(preProcT, newdata = data_test)
+data_test <- data.frame(data_test, vol_ha = PlotMetriksTest$vol_ha)
+predictions <- stats::predict(rf_model3, newdata = data_test)
+caret::postResample(predictions, PlotMetriksTest$vol_ha)
 
 
-## Erweitertes Random Forest ##
-data <- sf::st_drop_geometry(PlotMetriks_s)
-xtest <- sf::st_drop_geometry(PlotMetriks_s_Test)
-ytest <- PlotMetriks_s_Test$vol_ha
+#Streudiagramme
+#Train
+plot(x = PlotMetriksTrain$vol_ha, y = predict(Model, newdata = PlotMetriksTrain), xlab = "Gemessenes Volumen (m³/ha)", ylab = "geschätztes Volumen (m³/ha)")
+graphics::abline(0,1)
 
-preProc <- preProcess(data, method = c("center", "scale"))
-data_transformed <- predict(preProc, newdata = data)
-preProc <- preProcess(subset(data_transformed, select = -vol_ha), method = "corr")
-data_transformed <- predict(preProc, newdata = data_transformed)
-train_control <- caret::trainControl(method = "cv", number = 10)
-rf_model3 <- caret::train(vol_ha ~ ., data = data_transformed, method = "rf", ntree = 1000, maximize = TRUE, trControl = train_control)
-rf_model3; plot(caret::varImp(rf_model3))
-rf_model3$finalModel$mse[length(rf_model3$finalModel$mse)]
-rf_model3$finalModel$rsq[length(rf_model3$finalModel$rsq)] *100
-data_test <- xtest
-preProcT <- preProcess(data_test, method = c("center", "scale"))
-data_test <- predict(preProcT, newdata = data_test)
-predictions <- predict(rf_model3, newdata = data_test)
-postResample(predictions, ytest)
+plot(x = PlotMetriksTrain$vol_ha, y = predict(rf_model1, newdata = PlotMetriksTrain), xlab = "Gemessenes Volumen (m³/ha)", ylab = "geschätztes Volumen (m³/ha)")
+graphics::abline(0,1)
+
+plot(x = PlotMetriksTrain$vol_ha, y = predict(rf_model2, newdata = PlotMetriksTrain), xlab = "Gemessenes Volumen (m³/ha)", ylab = "geschätztes Volumen (m³/ha)")
+graphics::abline(0,1)
+
+plot(x = PlotMetriksTrain$vol_ha, y = predict(rf_model3, newdata = PlotMetriksTrain), xlab = "Gemessenes Volumen (m³/ha)", ylab = "geschätztes Volumen (m³/ha)")
+graphics::abline(0,1)
+
+#Test
+plot(x = PlotMetriksTest$vol_ha, y = predict(Model, newdata = PlotMetriksTest), xlab = "Gemessenes Volumen (m³/ha)", ylab = "geschätztes Volumen (m³/ha)")
+graphics::abline(0,1)
+
+plot(x = PlotMetriksTest$vol_ha, y = predict(rf_model1, newdata = PlotMetriksTest), xlab = "Gemessenes Volumen (m³/ha)", ylab = "geschätztes Volumen (m³/ha)")
+graphics::abline(0,1)
+
+plot(x = PlotMetriksTest$vol_ha, y = predict(rf_model2, newdata = PlotMetriksTest), xlab = "Gemessenes Volumen (m³/ha)", ylab = "geschätztes Volumen (m³/ha)")
+graphics::abline(0,1)
+
+plot(x = PlotMetriksTest$vol_ha, y = predict(rf_model3, newdata = PlotMetriksTest), xlab = "Gemessenes Volumen (m³/ha)", ylab = "geschätztes Volumen (m³/ha)")
+graphics::abline(0,1)
+
+
 
 base::save.image("./Workspace/RandomForest.RData")
+
+
 
 #__________________________________________________________________________________________________________________________________________#
 
@@ -570,7 +615,6 @@ base::save.image("./Workspace/RandomForest.RData")
 
 base::rm(list = ls())
 base::load("./Workspace/RandomForest.RData")
-base::rm("data", "data_corr", "data_preprozess", "data_test", "data_train", "data_transformed", "preProc", "preProcT", "Einteilung", "x", "sel")
 
 #Parallelprozessing Einstellen
 cores <- parallelly::availableCores()
@@ -585,15 +629,20 @@ lidR::opt_chunk_size(nctg) <- 530
 lidR::opt_restart(nctg) <- 1
 lidR::opt_laz_compression(nctg) <- TRUE
 lidR::opt_output_files(nctg) <- "./Daten/Wall_to_wall/Plot_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
-opt_filter(nctg) <- "-drop_z_below 0" # Ignore points with elevations below 0
+lidR::opt_filter(nctg) <- "-drop_z_below 0" # Ignore points with elevations below 0
 
-metrics_w2w <- pixel_metrics(nctg, .stdmetrics, res = 23, pkg = "terra")
+metrics_w2w <- lidR::pixel_metrics(nctg, lidR::.stdmetrics, res = 23, pkg = "terra")
 
 terra::writeRaster(metrics_w2w, "./Daten/WalltoWall.tif", overwrite = TRUE, progress = TRUE)
 
-plot(metrics_w2w$zq85)
-plot(metrics_w2w$zmean)
-plot(metrics_w2w$pzabovezmean)
+metrics_w2w_100 <- lidR::pixel_metrics(nctg, lidR::.stdmetrics, res = 100, pkg = "terra")
+terra::writeRaster(metrics_w2w_100, "./Daten/WalltoWall_100.tif", overwrite = TRUE, progress = TRUE)
+
+Gitter <-  terra::rast("./Gitter/RT_T32UNC_A035741_20240109T103324_B03.tif")
+metrics_w2w_sentinel <- lidR::pixel_metrics(nctg, lidR::.stdmetrics, res = Gitter, pkg = "terra")
+terra::writeRaster(metrics_w2w_sentinel, "./Daten/WalltoWall_sentinel.tif", overwrite = TRUE, progress = TRUE)
+
+
 
 base::save.image("./Workspace/WtoW.RData")
 
@@ -612,10 +661,28 @@ metrics_w2w <- terra::rast("./Daten/WalltoWall.tif")
 Pred <- raster::predict(metrics_w2w, model = rf_model1, filname = "./Ergebnisse/Daten/Vorratskarte_geschaetzt.tif", progress = "text", na.rm = TRUE)
 terra::writeRaster(Pred, "./Ergebnisse/Daten/Vorratskarte_geschaetzt.tif", overwrite = TRUE, progress = TRUE)
 
-lidR::plot(Pred)
+lidR::plot(Pred, col = viridis::viridis(1000), main = "Holzvorratskarte (Volumen je Hektar)", box = TRUE)
 
-Pred <- raster::predict(metrics_w2w, model = rf_model3, filname = "./Ergebnisse/Daten/Vorratskarte_geschaetzt.tif", progress = "text", na.rm = TRUE)
-terra::writeRaster(Pred, "./Ergebnisse/Daten/Vorratskarte_geschaetzt.tif", overwrite = TRUE, progress = TRUE)
+Pred2 <- raster::predict(metrics_w2w, model = rf_model2, filname = "./Ergebnisse/Daten/Vorratskarte2_geschaetzt.tif", progress = "text", na.rm = TRUE)
+terra::writeRaster(Pred2, "./Ergebnisse/Daten/Vorratskarte2_geschaetzt.tif", overwrite = TRUE, progress = TRUE)
+
+lidR::plot(Pred2, col = viridis::viridis(1000))
+
+metrics_w2w_100 <- terra::rast("./Daten/WalltoWall_100.tif")
+
+Pred <- raster::predict(metrics_w2w_100, model = rf_model1, filname = "./Ergebnisse/Daten/Vorratskarte_geschaetzt_100.tif", progress = "text", na.rm = TRUE)
+terra::writeRaster(Pred, "./Ergebnisse/Daten/Vorratskarte_geschaetzt_100.tif", overwrite = TRUE, progress = TRUE)
+
+lidR::plot(Pred, col = viridis::viridis(1000), main = "Holzvorratskarte (Volumen je Hektar)", box = TRUE)
+
+
+
+Pred <- raster::predict(metrics_w2w_sentinel, model = rf_model1, filname = "./Ergebnisse/Daten/Vorratskarte_geschaetzt_sentinel.tif", progress = "text", na.rm = TRUE)
+terra::writeRaster(Pred, "./Ergebnisse/Daten/Vorratskarte_geschaetzt_sentinel.tif", overwrite = TRUE, progress = TRUE)
+
+lidR::plot(Pred, col = viridis::viridis(1000), main = "Holzvorratskarte (Volumen je Hektar)", box = TRUE)
+
+
 
 base::save.image("./Workspace/Karte.RData")
 
@@ -688,3 +755,191 @@ lidR::plot(Zuschnitte)
 
 las <- lidR::readLAS(nctg@data$filename[118])
 lidR::plot(las)
+
+x <- PlotMetriksTest$vol_ha
+y <- predict(rf_model1, newdata = data_test)
+plot(x, y, xlab = "Test: Vol/ha", ylab = "Geschätzt Model 1")
+graphics::abline(0,1)
+
+
+base::save.image("./Workspace/Karte_validiert.RData")
+
+#__________________________________________________#
+
+#### Verbesserungen durch entfernen der von potenziellen Ausreißer ### 
+base::load("./Workspace/Karte_validiert.RData")
+
+#Entfernen Ausreißer basierend auf Boxplot
+data <- Plot_Vorrat_nctg
+
+q1 <- stats::quantile(data$vol_ha, 0.25)
+q3 <- stats::quantile(data$vol_ha, 0.75)
+iqr <- q3 - q1
+
+GrenzeU <- q1 - 1.5 * iqr
+GrenzeO <- q3 + 1.5 * iqr
+
+data_clean <- data[data$vol_ha >= GrenzeU & data$vol_ha <= GrenzeO,]
+print(data_clean)
+
+
+#Aufteilen der Daten in drei Klassen
+Einteilung <- base::max(data_clean$vol_ha) - base::min(data_clean$vol_ha)
+Einteilung <- Einteilung / 3
+
+Klasse1 <- dplyr::filter(data_clean, vol_ha < Einteilung) 
+Klasse2 <- dplyr::filter(data_clean, vol_ha > Einteilung & vol_ha < (Einteilung * 2)) 
+Klasse3 <- dplyr::filter(data_clean, vol_ha > (Einteilung * 2)) 
+
+#Jeweilige Klasse eigenes Holdout und zusammenfügen
+holdout_Klasse1 <- rminer::holdout(Klasse1$vol_ha, ratio = .8, mode = 'random')
+holdout_Klasse2 <- rminer::holdout(Klasse2$vol_ha, ratio = .8, mode = 'random')
+holdout_Klasse3 <- rminer::holdout(Klasse3$vol_ha, ratio = .8, mode = 'random')
+
+Train1 <- Klasse1[holdout_Klasse1$tr,]
+Test1 <- Klasse1[holdout_Klasse1$ts,]
+
+Train2 <- Klasse2[holdout_Klasse2$tr,]
+Test2 <- Klasse2[holdout_Klasse2$ts,]
+
+Train3 <- Klasse3[holdout_Klasse3$tr,]
+Test3 <- Klasse3[holdout_Klasse3$ts,]
+
+Train_all <- base::rbind(Train1, Train2, Train3)
+Test_all <- base::rbind(Test1, Test2, Test3)
+
+
+
+#laden der Daten für die Plotmetriken
+nctg <- lidR::readLAScatalog("./Daten/Daten_Hoehennormalisierung/", filter = "-drop_class 18")
+lidR::opt_chunk_buffer(nctg) <- 50
+lidR::opt_chunk_size(nctg) <- 530
+lidR::opt_restart(nctg) <- 1
+lidR::opt_laz_compression(nctg) <- TRUE
+lidR::opt_output_files(nctg) <- "./Daten/VerbesserungenPlotMetriken/Plot_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+
+#Parallelprozessing Einstellen
+cores <- parallelly::availableCores()
+cores <- base::as.integer(cores)
+future::plan(future::multisession, workers = cores)
+lidR::set_lidr_threads(cores)
+data.table::setDTthreads(restore_after_fork = TRUE, percent = 100)
+
+lidR::opt_filter(nctg) <- "-drop_z_below 0"
+
+#Überprüfen auf Grenzplots
+lidR::plot(nctg)
+lidR::plot(Train_all, add = TRUE, col = 'red')
+
+#Plotmetriken für Trainingsdaten
+PlotMetriksTrain <- lidR::plot_metrics(nctg, lidR::.stdmetrics, Train_all, radius = 13)
+
+#Plotmetriken für Testdaten
+lidR::opt_output_files(nctg) <- "./Daten/VerbesserungenPlotTestMetriken/Plot_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+
+#Überpüfen und entfernen von Grenzplts im Testdatensatz
+lidR::plot(nctg)
+lidR::plot(Test_all, add = TRUE, col = 'red')
+Test_all <- Test_all[- 202,]
+lidR::plot(nctg)
+lidR::plot(Test_all[202,], add = TRUE, col = 'red')
+
+#Plotmetriken für Testdatensatz
+PlotMetriksTest <- lidR::plot_metrics(nctg, lidR::.stdmetrics, Test_all, radius = 13)
+
+
+#Überprüfen und entfernen von leeren Werten
+table(is.na.data.frame(PlotMetriksTest))
+table(is.na.data.frame(PlotMetriksTrain))
+PlotMetriksTest <- stats::na.omit(PlotMetriksTest)
+PlotMetriksTrain <- stats::na.omit(PlotMetriksTrain)
+
+#Entfernen von Geometry
+data <- sf::st_drop_geometry(PlotMetriksTrain)
+xtest <- sf::st_drop_geometry(PlotMetriksTest)
+ytest <- PlotMetriksTest$vol_ha
+
+# Parallelprozessing Einstellen
+cores <- parallelly::availableCores()
+cores <- as.integer(cores)
+future::plan(future::multisession, workers = cores)
+lidR::set_lidr_threads(cores)
+
+#random Forest mit allen Variablen
+Model <- randomForest::randomForest(vol_ha ~ ., data = data, xtest = subset(xtest, select = -vol_ha), ytest = ytest)
+Model
+
+#Testen des Random Forests
+Model$mse[length(Model$mse)]
+Model$rsq[length(Model$rsq)] * 100
+Model$test$mse[length(Model$test$mse)]
+Model$test$rsq[length(Model$test$rsq)] * 100
+
+# Überpfrüfen des RandomForest
+caret::varImp(Model) == Model$importance
+randomForest::varImpPlot(Model)
+
+## Erweitertes Aufräumen Testen
+#preprocess Train
+data <- sf::st_drop_geometry(subset(PlotMetriksTrain, select = -vol_ha))
+preProc <- caret::preProcess(data, method = c("center", "scale", "corr"), na.remove = TRUE)
+preProc
+data_transformed <- stats::predict(preProc, newdata = data)
+data_transformed <- base::data.frame(data_transformed, vol_ha = PlotMetriksTrain$vol_ha)
+
+#Modell 3
+train_control <- caret::trainControl(method = "cv", number = 10)
+rf_model3 <- caret::train(vol_ha ~ ., data = data_transformed, method = "rf", maximize = TRUE, trContol = train_control)
+rf_model3; plot(caret::varImp(rf_model3))
+rf_model3$finalModel$mse[length(rf_model3$finalModel$mse)]
+rf_model3$finalModel$rsq[length(rf_model3$finalModel$rsq)] *100
+
+#Test Modell 3
+data_test <- sf::st_drop_geometry(PlotMetriksTest)
+preProcT <- subset(data_test, select = -vol_ha)
+preProcT <- caret::preProcess(preProcT, method = c("center", "scale"), na.remove = TRUE)
+data_test <- stats::predict(preProcT, newdata = data_test)
+data_test <- data.frame(data_test, vol_ha = PlotMetriksTest$vol_ha)
+predictions <- stats::predict(rf_model3, newdata = data_test)
+caret::postResample(predictions, PlotMetriksTest$vol_ha)
+
+
+base::save.image("./Workspace/VerbessertVersuch.RData")
+
+
+#__________________________________________________#
+
+### Versuch der Extrakton von Kronengrößen ####
+
+base::load("./workspace/VerbessertVersuch.RData")
+
+#laden der Daten 
+nctg <- lidR::readLAScatalog("./Daten/Daten_Hoehennormalisierung/", filter = "-drop_class 18")
+lidR::opt_chunk_buffer(nctg) <- 50
+lidR::opt_chunk_size(nctg) <- 600
+lidR::opt_restart(nctg) <- 1
+lidR::opt_laz_compression(nctg) <- TRUE
+lidR::opt_output_files(nctg) <- "./Daten/indiTree/Plot_coordinate_{ID}_{XLEFT}_{YBOTTOM}"
+
+#Parallelprozessing Einstellen
+cores <- parallelly::availableCores()
+cores <- base::as.integer(cores)
+future::plan(future::multisession, workers = cores)
+lidR::set_lidr_threads(cores)
+data.table::setDTthreads(restore_after_fork = TRUE, percent = 100)
+
+lidR::opt_filter(nctg) <- "-drop_z_below 0"
+
+#laden des Canopy-height-model
+x <- "./Daten/CHM.tif"
+chm <- terra::rast(x)
+
+#Berechnung der Baumpositionen
+ttops <- lidR::locate_trees(chm, lidR::lmf(ws = 5))
+
+#Hochsetzen der maximalen Dateigrößen im parallelprozessing
+options(future.globals.maxSize = 800 * 1024^2)
+
+# Extraktion einzelner Bäume
+TreeCrowns <- lidR::segment_trees(nctg ,lidR::silva2016(chm, ttops, ID = "treeID")) #Fehlerhaft, es werden keine Bäume extrahiert
+
